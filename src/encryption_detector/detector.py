@@ -24,8 +24,6 @@ from .signatures import (
 )
 from .utils import (
     get_port_heuristic,
-    analyze_payload_randomness,
-    is_likely_encrypted_by_entropy,
     create_flow_key
 )
 
@@ -93,8 +91,7 @@ class EncryptionDetector:
     1. Protocol framing (TLS/DTLS/QUIC) - highest confidence
     2. Cleartext protocol signatures (DNS/HTTP/MQTT/CoAP/RTSP)
     3. Port heuristics
-    4. Entropy analysis
-    5. Unknown/insufficient
+    4. Unknown/insufficient
     """
     
     def __init__(self):
@@ -117,9 +114,6 @@ class EncryptionDetector:
         # Check payload sufficiency
         payload_sufficient = flow.is_payload_sufficient(min_payload_size=5)
         
-        # Collect all payloads for analysis
-        all_payloads = b''.join(p.payload for p in flow.packets)
-        
         # Rule 1: High-confidence encrypted via protocol framing
         result = self._check_encrypted_framing(flow, payload_sufficient)
         if result:
@@ -135,13 +129,7 @@ class EncryptionDetector:
         if result:
             return result
         
-        # Rule 4: Optional entropy analysis
-        if payload_sufficient and len(all_payloads) > 0:
-            result = self._check_entropy(all_payloads)
-            if result:
-                return result
-        
-        # Rule 5: Unknown/insufficient
+        # Rule 4: Unknown/insufficient
         return self._create_unknown_result(flow, EvidenceType.INSUFFICIENT, 0.5)
     
     def _check_encrypted_framing(self, flow: Flow, payload_sufficient: bool) -> Optional[FlowResult]:
@@ -303,17 +291,6 @@ class EncryptionDetector:
                 )
             else:
                 return self._create_cleartext_result(flow, EvidenceType.PORT_HEURISTIC, confidence, flow.is_payload_sufficient())
-        
-        return None
-    
-    def _check_entropy(self, payload: bytes) -> Optional[FlowResult]:
-        """Check payload entropy for encryption indicators."""
-        entropy, printable_ratio = analyze_payload_randomness(payload, sample_size=1024)
-        
-        if is_likely_encrypted_by_entropy(entropy, printable_ratio):
-            # Create a minimal flow result for entropy-based detection
-            # Note: This is a simplified case; in practice, you'd need flow context
-            return None  # Entropy alone is weak evidence, skip for now
         
         return None
     
