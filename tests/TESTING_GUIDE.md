@@ -27,17 +27,47 @@ Pipeline Flow:
 └─────────────────┘
 ```
 
+## Test Structure
+
+Each phase has its own directory with individual test scripts:
+
+```
+tests/
+├── phase1/          # Phase 1: Encryption Detection
+│   ├── test_encrypted_tls_traffic.py
+│   ├── test_encrypted_quic_traffic.py
+│   ├── test_cleartext_dns_traffic.py
+│   ├── test_cleartext_http_traffic.py
+│   ├── test_unknown_traffic.py
+│   └── run_all_tests.py
+├── phase2/          # Phase 2: Context Selection
+│   ├── test_encrypted_tls_context_selection.py
+│   ├── test_cleartext_dns_context_selection.py
+│   ├── test_cleartext_mqtt_context_selection.py
+│   ├── test_unknown_context_selection.py
+│   └── run_all_tests.py
+└── phase3/          # Phase 3: C2 Detection
+    ├── test_encrypted_tls_c2_detection.py
+    ├── test_cleartext_dns_c2_detection.py
+    ├── test_cleartext_mqtt_c2_detection.py
+    ├── test_unknown_traffic_c2_detection.py
+    └── run_all_tests.py
+```
+
 ## Quick Start
 
 ```bash
-# Run all phases
-python tests/run_tests.py --all-phases
+# Run a single Phase 1 test
+python3 tests/phase1/test_encrypted_tls_traffic.py
 
-# Run specific phase
-python tests/run_tests.py --phase 1
+# Run all Phase 1 tests
+python3 tests/phase1/run_all_tests.py
 
-# Run integration tests
-python tests/run_tests.py --integration
+# Run all Phase 2 tests
+python3 tests/phase2/run_all_tests.py
+
+# Run all Phase 3 tests
+python3 tests/phase3/run_all_tests.py
 ```
 
 ## Phase 1: Encryption Detection
@@ -45,11 +75,11 @@ python tests/run_tests.py --integration
 **Purpose**: Verify that the system correctly identifies encrypted vs cleartext traffic.
 
 **Tests**:
-- `test_encrypted_tls_traffic` - TLS on port 443
-- `test_encrypted_quic_traffic` - QUIC on UDP/443
-- `test_cleartext_dns_traffic` - DNS on port 53
-- `test_cleartext_http_traffic` - HTTP on port 80
-- `test_unknown_traffic` - Unknown ports/protocols
+- `test_encrypted_tls_traffic.py` - TLS on port 443
+- `test_encrypted_quic_traffic.py` - QUIC on UDP/443
+- `test_cleartext_dns_traffic.py` - DNS on port 53
+- `test_cleartext_http_traffic.py` - HTTP on port 80
+- `test_unknown_traffic.py` - Unknown ports/protocols
 
 **What it validates**:
 - Encryption detection logic
@@ -57,13 +87,12 @@ python tests/run_tests.py --integration
 - Handling of unknown traffic
 
 **Example**:
-```python
-# Phase 1 test
-is_encrypted, protocol_type = check_encryption(
-    packet_data, port=443, protocol='tcp', packet_bytes=tls_bytes
-)
-assert is_encrypted == True
-assert protocol_type == 'tls'
+```bash
+# Run a single test
+python3 tests/phase1/test_encrypted_tls_traffic.py
+
+# Run all Phase 1 tests
+python3 tests/phase1/run_all_tests.py
 ```
 
 ## Phase 2: Context Selection
@@ -71,10 +100,10 @@ assert protocol_type == 'tls'
 **Purpose**: Verify that the correct expert/model is selected based on encryption status and context.
 
 **Tests**:
-- `test_encrypted_tls_context_selection` - TLS → tls_model
-- `test_cleartext_dns_context_selection` - DNS → dns_model
-- `test_cleartext_mqtt_context_selection` - MQTT → mqtt_model
-- `test_unknown_context_selection` - Unknown → default_model
+- `test_encrypted_tls_context_selection.py` - TLS → tls_model
+- `test_cleartext_dns_context_selection.py` - DNS → dns_model
+- `test_cleartext_mqtt_context_selection.py` - MQTT → mqtt_model
+- `test_unknown_context_selection.py` - Unknown → default_model
 
 **What it validates**:
 - Model selection logic
@@ -82,13 +111,12 @@ assert protocol_type == 'tls'
 - Routing based on protocol/port
 
 **Example**:
-```python
-# Phase 1: Encryption detection
-is_encrypted, protocol_type = check_encryption(...)
+```bash
+# Run a single test
+python3 tests/phase2/test_encrypted_tls_context_selection.py
 
-# Phase 2: Context selection
-model_name = select_ai_model(packet_data, is_encrypted, protocol_type)
-assert model_name == 'tls_model'
+# Run all Phase 2 tests
+python3 tests/phase2/run_all_tests.py
 ```
 
 ## Phase 3: C2 Detection
@@ -96,10 +124,10 @@ assert model_name == 'tls_model'
 **Purpose**: Verify end-to-end C2 detection with confidence scores.
 
 **Tests**:
-- `test_encrypted_tls_c2_detection` - Full pipeline for TLS
-- `test_cleartext_dns_c2_detection` - Full pipeline for DNS
-- `test_cleartext_mqtt_c2_detection` - Full pipeline for MQTT
-- `test_unknown_traffic_c2_detection` - Full pipeline for unknown
+- `test_encrypted_tls_c2_detection.py` - Full pipeline for TLS
+- `test_cleartext_dns_c2_detection.py` - Full pipeline for DNS
+- `test_cleartext_mqtt_c2_detection.py` - Full pipeline for MQTT
+- `test_unknown_traffic_c2_detection.py` - Full pipeline for unknown
 
 **What it validates**:
 - Complete pipeline execution
@@ -108,169 +136,136 @@ assert model_name == 'tls_model'
 - All phases working together
 
 **Example**:
-```python
-# Full pipeline
-result = detect_c2(packet_data, port=443, protocol='tcp', packet_bytes=tls_bytes)
+```bash
+# Run a single test
+python3 tests/phase3/test_encrypted_tls_c2_detection.py
 
-# Validate all phases
-assert result['is_encrypted'] == True  # Phase 1
-assert result['model_used'] == 'tls_model'  # Phase 2
-assert 'is_c2' in result  # Phase 3
-assert 'probability' in result  # Phase 3
-```
-
-## Test Fixtures
-
-Reusable test data is provided in `test_fixtures.py`:
-
-```python
-from tests.test_fixtures import TestFixtures
-
-# Create packet bytes
-tls_bytes = TestFixtures.create_tls_packet_bytes()
-dns_bytes = TestFixtures.create_dns_packet_bytes()
-
-# Create packet DataFrame
-packet_df = TestFixtures.create_packet_dataframe(
-    n_packets=5,
-    port=443,
-    protocol='tcp'
-)
-
-# Create complete scenario
-scenario = TestFixtures.create_flow_scenario('tls', n_packets=5)
+# Run all Phase 3 tests
+python3 tests/phase3/run_all_tests.py
 ```
 
 ## Running Tests
 
-### Option 1: Test Runner Script (Recommended)
+### Option 1: Individual Test Scripts (Recommended)
+
+Each test is a standalone script that can be run independently:
 
 ```bash
-# All phases sequentially
-python tests/run_tests.py --all-phases
+# Run a specific test
+python3 tests/phase1/test_encrypted_tls_traffic.py
 
-# Specific phase
-python tests/run_tests.py --phase 1
-
-# Integration (all together)
-python tests/run_tests.py --integration
-
-# Verbosity control
-python tests/run_tests.py --phase 1 --verbosity 0  # Quiet
-python tests/run_tests.py --phase 1 --verbosity 2  # Verbose
+# Run all tests in a phase
+python3 tests/phase1/run_all_tests.py
 ```
 
-### Option 2: unittest
+### Option 2: Run All Phases Manually
 
 ```bash
-# All tests
-python -m unittest discover tests
+# Phase 1
+python3 tests/phase1/run_all_tests.py
 
-# Specific test class
-python -m unittest tests.test_pipeline.Phase1EncryptionDetectionTests
+# Phase 2
+python3 tests/phase2/run_all_tests.py
 
-# Specific test
-python -m unittest tests.test_pipeline.Phase1EncryptionDetectionTests.test_encrypted_tls_traffic
+# Phase 3
+python3 tests/phase3/run_all_tests.py
 ```
-
-## Test Results
-
-Tests record results using `record_test_result()`:
-
-```python
-self.record_test_result(phase, test_name, {
-    'is_encrypted': is_encrypted,
-    'protocol_type': protocol_type,
-    'passed': True
-})
-```
-
-Results are stored in `self.test_results` and can be used for reporting.
 
 ## Adding New Tests
 
-### 1. Add to Existing Phase
+### 1. Create a New Test Script
+
+Create a new file in the appropriate phase directory:
 
 ```python
-class Phase1EncryptionDetectionTests(PipelineTestBase):
-    def test_new_protocol(self):
-        """Test new protocol detection."""
-        # Your test code
-        self.record_test_result(1, 'new_protocol', {...})
+#!/usr/bin/env python3
+"""
+Phase 1 Test: Your Test Name
+
+Description of what this test does.
+"""
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import pandas as pd
+from src.moe import check_encryption  # Import functions you need
+
+
+def create_packet_dataframe(port=443, protocol='tcp'):
+    """Create test packet DataFrame."""
+    # Your data creation logic
+    return pd.DataFrame({...})
+
+
+def main():
+    """Run the test."""
+    print("=" * 80)
+    print("Phase 1 Test: Your Test Name")
+    print("=" * 80)
+    print()
+    
+    # Your test logic here
+    packet_data = create_packet_dataframe()
+    result = check_encryption(...)
+    
+    # Assertions
+    print("Assertions:")
+    try:
+        assert result == expected, f"Expected {expected}, got {result}"
+        print("  ✓ Test passed")
+        print()
+        print("=" * 80)
+        print("TEST PASSED ✓")
+        print("=" * 80)
+        return 0
+    except AssertionError as e:
+        print(f"  ✗ FAILED: {e}")
+        print()
+        print("=" * 80)
+        print("TEST FAILED ✗")
+        print("=" * 80)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())
 ```
 
-### 2. Create New Test Class
+### 2. Make Script Executable
 
-```python
-class Phase1CustomTests(PipelineTestBase):
-    """Custom Phase 1 tests."""
-    def test_custom(self):
-        """Custom test."""
-        # Your test code
+```bash
+chmod +x tests/phase1/your_new_test.py
 ```
 
-Then add to test runner:
-```python
-loader = unittest.TestLoader()
-tests = loader.loadTestsFromTestCase(Phase1CustomTests)
-suite.addTests(tests)
-```
+### 3. Test Scripts Are Automatically Discovered
+
+The `run_all_tests.py` script in each phase directory automatically finds and runs all `test_*.py` scripts.
 
 ## Debugging
 
-### Verbose Output
+### Print Output
+
+Each test script prints detailed output including:
+- Test input
+- Intermediate results
+- Final assertions
+- Pass/Fail status
+
+### Run Individual Test
 
 ```bash
-python tests/run_tests.py --phase 1 --verbosity 2
+# Run a single test for debugging
+python3 tests/phase1/test_encrypted_tls_traffic.py
 ```
 
-### Python Debugger
+### Check Exit Code
 
 ```bash
-python -m pdb -m unittest tests.test_pipeline.Phase1EncryptionDetectionTests.test_encrypted_tls_traffic
-```
-
-### Print Debugging
-
-Add print statements in tests:
-```python
-def test_something(self):
-    result = detect_c2(...)
-    print(f"Debug: {result}")  # Will show in test output
-    self.assert...
-```
-
-## Test Coverage
-
-```bash
-# Install coverage
-pip install coverage
-
-# Run with coverage
-coverage run -m unittest discover tests
-
-# View report
-coverage report
-
-# HTML report
-coverage html
-open htmlcov/index.html
-```
-
-## CI/CD Integration
-
-For continuous integration:
-
-```bash
-# Exit code 0 on success, 1 on failure
-python tests/run_tests.py --all-phases
-```
-
-Example GitHub Actions:
-
-```yaml
-- name: Run Tests
-  run: python tests/run_tests.py --all-phases
+# Exit code 0 = pass, 1 = fail
+python3 tests/phase1/test_encrypted_tls_traffic.py
+echo $?  # 0 if passed, 1 if failed
 ```
 
 ## Expected Behavior
@@ -296,6 +291,7 @@ Example GitHub Actions:
 - **Skeleton State**: Some tests may have `is_c2=None` if models aren't implemented yet. This is expected.
 - **Model Loading**: Phase 3 tests validate the pipeline structure, not actual model predictions (until models are implemented).
 - **Test Data**: All tests use synthetic data. Real PCAP files can be added for integration testing.
+- **Standalone Scripts**: Each test is independent and can be run without test runners.
 
 ## Troubleshooting
 
@@ -304,21 +300,20 @@ Example GitHub Actions:
 ```bash
 # Make sure you're in the project root
 cd /path/to/IoT-Traffic-Models
-python tests/run_tests.py --phase 1
+python3 tests/phase1/test_encrypted_tls_traffic.py
 ```
 
 ### Module Not Found
 
 ```bash
-# Add to PYTHONPATH
-export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-python tests/run_tests.py --phase 1
+# The test scripts automatically add the project root to sys.path
+# If issues persist, check that src/ directory exists
+ls -la src/
 ```
 
 ### Tests Failing
 
 1. Check if encryption_detector module is available
-2. Verify moe_integration.py functions are implemented
+2. Verify moe integration functions are implemented
 3. Check test output for specific error messages
-4. Run with verbose output: `--verbosity 2`
-
+4. Run individual tests to isolate issues
