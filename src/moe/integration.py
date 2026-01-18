@@ -33,7 +33,8 @@ def check_encryption(packet_data: pd.DataFrame,
         protocol_type examples: 'tls', 'quic', 'dtls', or None
     """
     # Use encryption_detector module if packet_bytes provided
-    if packet_bytes:
+    # Note: Check 'is not None' to allow empty bytes (b'') to be analyzed
+    if packet_bytes is not None:
         try:
             import sys
             from pathlib import Path
@@ -43,12 +44,20 @@ def check_encryption(packet_data: pd.DataFrame,
                 sys.path.insert(0, str(src_path))
             from src.encryption_detector import analyze_packet
             result = analyze_packet(packet_bytes, port=port, protocol=protocol)
+            # Extract protocol_type from encrypted_family when encrypted
             protocol_type = result.encrypted_family.value if result.encrypted else None
+            # Map 'unknown' to None for consistency
             if protocol_type == 'unknown':
                 protocol_type = None
             return result.encrypted, protocol_type
         except ImportError:
             # Fallback if module not available
+            pass
+        except Exception as e:
+            # Log other exceptions but fall back to heuristics
+            # This prevents silent failures while maintaining fallback behavior
+            import warnings
+            warnings.warn(f"Encryption detection failed: {e}. Falling back to port heuristics.", RuntimeWarning)
             pass
     
     # Fallback: Port-based heuristics
