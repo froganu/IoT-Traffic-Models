@@ -1,8 +1,14 @@
 # IoT-Traffic-Models
-TLS 1.2 to TLS 1.3-enabled Malware (Hasan)	MQTT, COAP:v1, RTSP (Andrea)	Different mirai attacks on Danmini Doorbell Device	Mirai attacks to IoT devices in CICIOT lab (GRE)	DNS-Based Command & Control (Jaime)
-Encryption - TLS/Quic
-Not - Encrypted 
+Contexts:
+TLS 1.2 to TLS 1.3-enabled Malware
+MQTT, COAP:v1, RTSP
+Different mirai attacks on Danmini Doorbell Device	
+Mirai attacks to IoT devices in CICIOT lab
+DNS-Based Command & Control
 
+Packets:
+Encrypted - TLS/Quic/DTLS
+Not Encrypted 
 
 MoE - Multiple of Experts
 
