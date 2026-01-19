@@ -1,0 +1,25 @@
+# Requirements for IoT Traffic Models - MoE System
+
+# Core data processing
+pandas>=1.3.0
+numpy>=1.21.0
+
+# Machine learning
+scikit-learn>=1.0.0
+xgboost>=1.5.0  # Note: On macOS, requires: brew install libomp
+tensorflow>=2.8.0  # For DNN models
+keras>=2.8.0
+
+# Utilities
+tqdm>=4.62.0
+joblib>=1.1.0
+
+# Jupyter (for notebooks)
+jupyter>=1.0.0
+ipykernel>=6.0.0
+notebook>=6.4.0
+
+# Optional: For advanced network analysis
+# scapy>=2.4.5  # Uncomment if needed for packet analysis
+# pyshark>=0.6  # Uncomment if needed for pcap parsing
+
