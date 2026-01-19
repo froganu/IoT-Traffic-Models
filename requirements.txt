@@ -19,7 +19,7 @@ jupyter>=1.0.0
 ipykernel>=6.0.0
 notebook>=6.4.0
 
-# Optional: For advanced network analysis
-# scapy>=2.4.5  # Uncomment if needed for packet analysis
-# pyshark>=0.6  # Uncomment if needed for pcap parsing
+# Network analysis and TLS parsing
+scapy>=2.4.5  # Required for TLS record extraction
+pyshark>=0.6  # Alternative for TLS parsing (optional, but recommended)
 

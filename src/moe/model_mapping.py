@@ -20,43 +20,44 @@ MODEL_FILE_MAPPING: Dict[tuple, str] = {
     ('tls', 'dnn'): 'TLS/dnn_model.h5',
     ('tls', 'knn'): 'TLS/knn_model.pkl',
     ('tls', 'xgboost'): 'TLS/xgb_model.pkl',
-    ('tls', 'extra_trees'): 'TLS/extratrees_model.pkl',
+    ('tls', 'extra_trees'): 'TLS/ extra_trees_model.pkl',  # Note: filename has leading space
     ('tls', 'decision_tree'): 'TLS/decision_tree_model.pkl',
     
     # DNS models
     ('dns', 'random_forest'): 'DNS/random_forest_model.pkl',
-    ('dns', 'dnn'): 'DNS/ann_model.keras',
-    ('dns', 'knn'): 'DNS/knnmodel.pkl',
-    ('dns', 'xgboost'): 'DNS/xgboost_model.pkl',
-    ('dns', 'extra_trees'): 'DNS/extratreesmodel.pkl',
+    # Note: DNS dnn model not available (no dnn_model.keras file found)
+    # ('dns', 'dnn'): 'DNS/dnn_model.keras',  # File does not exist
+    ('dns', 'knn'): 'DNS/knn_model.pkl',
+    ('dns', 'xgboost'): 'DNS/xgb_model.pkl',
+    ('dns', 'extra_trees'): 'DNS/extra_trees_model.pkl',
     ('dns', 'decision_tree'): 'DNS/decision_tree_model.pkl',
     
     # Doorbell models
-    ('doorbell', 'random_forest'): 'Doorbell/DanminiDoorbell_random_forest.pkl',
-    ('doorbell', 'dnn'): 'Doorbell/DanminiDoorbell_neural_network.keras',
-    ('doorbell', 'knn'): 'Doorbell/DanminiDoorbell_KNN_balanced_scaled_k3.pkl',
-    ('doorbell', 'xgboost'): 'Doorbell/DanminiDoorbell_xgboost.pkl',
-    ('doorbell', 'extra_trees'): 'Doorbell/DanminiDoorbell_extra_trees.pkl',
-    ('doorbell', 'decision_tree'): 'Doorbell/DanminiDoorbell_decision_tree.pkl',
-    ('doorbell', 'logistic_regression'): 'Doorbell/DanminiDoorbell_logistic_regression.pkl',
+    ('doorbell', 'random_forest'): 'Doorbell/random_forest_model.pkl',
+    ('doorbell', 'dnn'): 'Doorbell/dnn_model.keras',
+    ('doorbell', 'knn'): 'Doorbell/knn_model.pkl',
+    ('doorbell', 'xgboost'): 'Doorbell/xgb_model.pkl',
+    ('doorbell', 'extra_trees'): 'Doorbell/extra_trees_model.pkl',
+    ('doorbell', 'decision_tree'): 'Doorbell/decision_tree_model.pkl',
+    ('doorbell', 'logistic_regression'): 'Doorbell/logistic_regression_model.pkl',
     
     # MQTT/CoAP/RTSP models
     ('mqtt_coap_rtsp', 'random_forest'): 'MQTT_COAP_RTSP/random_forest_model.pkl',
-    ('mqtt_coap_rtsp', 'dnn'): 'MQTT_COAP_RTSP/central_dnn_model.keras',
+    ('mqtt_coap_rtsp', 'dnn'): 'MQTT_COAP_RTSP/dnn_model.keras',
     ('mqtt_coap_rtsp', 'knn'): 'MQTT_COAP_RTSP/knn_model.pkl',
-    ('mqtt_coap_rtsp', 'xgboost'): 'MQTT_COAP_RTSP/xgboost_model.pkl',
+    ('mqtt_coap_rtsp', 'xgboost'): 'MQTT_COAP_RTSP/xgb_model.pkl',
     ('mqtt_coap_rtsp', 'extra_trees'): 'MQTT_COAP_RTSP/extra_trees_model.pkl',
     ('mqtt_coap_rtsp', 'decision_tree'): 'MQTT_COAP_RTSP/decision_tree_model.pkl',
     ('mqtt_coap_rtsp', 'logistic_regression'): 'MQTT_COAP_RTSP/logistic_regression_model.pkl',
     
     # GRE models (fallback)
-    ('gre', 'random_forest'): 'GRE/RandomForest.pkl',
-    ('gre', 'dnn'): 'GRE/DNN.pkl',
-    ('gre', 'knn'): 'GRE/KNN.zip',
-    ('gre', 'xgboost'): 'GRE/XGBoost.pkl',
-    ('gre', 'extra_trees'): 'GRE/ExtraTrees.pkl',
-    ('gre', 'decision_tree'): 'GRE/DecisionTree.pkl',
-    ('gre', 'logistic_regression'): 'GRE/LogisticRegression.pkl',
+    ('gre', 'random_forest'): 'GRE/random_forest_model.pkl',
+    ('gre', 'dnn'): 'GRE/dnn_model.pkl',
+    ('gre', 'knn'): 'GRE/knn_model.zip',
+    ('gre', 'xgboost'): 'GRE/xgb_model.pkl',
+    ('gre', 'extra_trees'): 'GRE/extra_trees_model.pkl',
+    ('gre', 'decision_tree'): 'GRE/decision_tree_model.pkl',
+    ('gre', 'logistic_regression'): 'GRE/logistic_regression_model.pkl',
 }
 
 

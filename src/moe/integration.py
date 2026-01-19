@@ -91,21 +91,29 @@ def check_encryption(packet_data: pd.DataFrame,
             if str(src_path) not in sys.path:
                 sys.path.insert(0, str(src_path))
             from src.encryption_detector import analyze_packet
-            result = analyze_packet(packet_bytes, port=port, protocol=protocol)
-            # Extract protocol_type from encrypted_family when encrypted
-            protocol_type = result.encrypted_family.value if result.encrypted else None
-            # Map 'unknown' to None for consistency
-            if protocol_type == 'unknown':
-                protocol_type = None
-            return result.encrypted, protocol_type
+            
+            # Extract TCP/UDP payload from full packet bytes
+            # analyze_packet expects payload bytes, not full packet bytes
+            payload_bytes = _extract_payload_from_packet_bytes(packet_bytes, protocol)
+            
+            if payload_bytes is not None and len(payload_bytes) > 0:
+                result = analyze_packet(payload_bytes, port=port, protocol=protocol)
+                # Extract protocol_type from encrypted_family when encrypted
+                protocol_type = result.encrypted_family.value if result.encrypted else None
+                # Map 'unknown' to None for consistency
+                if protocol_type == 'unknown':
+                    protocol_type = None
+                return result.encrypted, protocol_type
+            else:
+                # No payload extracted, fall back to port heuristics
+                logger.debug("Could not extract payload from packet bytes, using port heuristics")
         except ImportError:
             # Fallback if module not available
             pass
         except Exception as e:
             # Log other exceptions but fall back to heuristics
             # This prevents silent failures while maintaining fallback behavior
-            import warnings
-            warnings.warn(f"Encryption detection failed: {e}. Falling back to port heuristics.", RuntimeWarning)
+            logger.warning(f"Encryption detection failed: {e}. Falling back to port heuristics.")
             pass
     
     # Fallback: Port-based heuristics
@@ -183,6 +191,64 @@ def _extract_packet_metadata(packet_data: pd.DataFrame) -> Tuple[Optional[int], 
             l4_proto = 'tcp'
     
     return dst_port, src_port, l4_proto
+
+
+def _extract_payload_from_packet_bytes(packet_bytes: bytes, protocol: Optional[str] = None) -> Optional[bytes]:
+    """
+    Extract TCP/UDP payload from full packet bytes (Ethernet/IP/L4).
+    
+    analyze_packet expects payload bytes, not full packet bytes.
+    
+    Args:
+        packet_bytes: Full packet bytes (Ethernet frame)
+        protocol: Protocol string ('tcp' or 'udp') - if None, will try to detect
+    
+    Returns:
+        Payload bytes or None if extraction fails
+    """
+    if len(packet_bytes) < 14:  # Minimum Ethernet header
+        return None
+    
+    # Skip Ethernet header (14 bytes)
+    ip_data = packet_bytes[14:]
+    
+    if len(ip_data) < 20:  # Minimum IP header
+        return None
+    
+    # Parse IP header
+    ip_version = (ip_data[0] >> 4) & 0x0F
+    if ip_version != 4:  # Only support IPv4
+        return None
+    
+    ip_header_len = (ip_data[0] & 0x0F) * 4
+    ip_protocol = ip_data[9]
+    
+    # Get L4 data
+    l4_data = ip_data[ip_header_len:]
+    if len(l4_data) < 8:
+        return None
+    
+    # Determine protocol if not provided
+    if protocol is None:
+        if ip_protocol == 6:
+            protocol = 'tcp'
+        elif ip_protocol == 17:
+            protocol = 'udp'
+        else:
+            return None
+    
+    # Extract payload based on protocol
+    if protocol == 'tcp':
+        if len(l4_data) < 20:  # Minimum TCP header
+            return None
+        tcp_header_len = ((l4_data[12] >> 4) & 0x0F) * 4
+        if len(l4_data) > tcp_header_len:
+            return l4_data[tcp_header_len:]
+    elif protocol == 'udp':
+        if len(l4_data) >= 8:
+            return l4_data[8:]
+    
+    return None
 
 
 def _get_packet_bytes_safe(packet_data: pd.DataFrame) -> Optional[bytes]:
@@ -497,17 +563,39 @@ def load_model(model_name: str):
     # Parse model name format: context_modelid_model or legacy format
     if '_' in model_name and model_name.endswith('_model'):
         # New format: context_modelid_model
-        parts = model_name.rsplit('_', 2)  # Split from right to get [context, modelid, 'model']
-        if len(parts) == 3:
-            context = parts[0]
-            model_id = parts[1]
+        # Handle contexts that may have underscores (e.g., 'mqtt_coap_rtsp')
+        # Known contexts: tls, dns, doorbell, mqtt_coap_rtsp, gre
+        if model_name.endswith('_model'):
+            name_without_suffix = model_name[:-6]  # Remove '_model'
             
-            # Get model file path
-            model_file = get_model_file_name(context, model_id)
-            if model_file:
-                return _load_model_from_file(model_file)
-            else:
-                logger.warning(f"Model file not found for {model_name}, trying legacy format")
+            # Try known contexts first (longest first to match 'mqtt_coap_rtsp' before 'mqtt')
+            known_contexts = ['mqtt_coap_rtsp', 'doorbell', 'xgboost', 'random_forest', 'extra_trees', 
+                            'decision_tree', 'logistic_regression', 'tls', 'dns', 'gre']
+            
+            # Find matching context (check if name starts with known context + '_')
+            context = None
+            model_id = None
+            
+            for known_context in known_contexts:
+                if name_without_suffix.startswith(known_context + '_'):
+                    context = known_context
+                    model_id = name_without_suffix[len(known_context) + 1:]  # Everything after context + '_'
+                    break
+            
+            # If no known context matched, try splitting on first underscore
+            if context is None:
+                first_underscore = name_without_suffix.find('_')
+                if first_underscore > 0:
+                    context = name_without_suffix[:first_underscore]
+                    model_id = name_without_suffix[first_underscore + 1:]
+            
+            if context and model_id:
+                # Get model file path
+                model_file = get_model_file_name(context, model_id)
+                if model_file:
+                    return _load_model_from_file(model_file)
+                else:
+                    logger.warning(f"Model file not found for {model_name} (context={context}, model_id={model_id}), trying legacy format")
     
     # Legacy format: use accuracy table to get best model
     legacy_to_context = {
@@ -591,8 +679,6 @@ def extract_packet_features(packet_data: pd.DataFrame,
     """
     Extract features from packet(s) for model prediction.
     
-    TODO: Implement feature extraction for each model type.
-    
     Args:
         packet_data: DataFrame with packet-level features (one row per packet)
         model_name: Model identifier (to know which features to extract)
@@ -601,28 +687,131 @@ def extract_packet_features(packet_data: pd.DataFrame,
     Returns:
         Feature array ready for model prediction
     """
-    # TODO: Implement feature extraction
-    # Examples:
-    # if model_name == 'tls_model':
-    #     # Extract TLS behavior features: packet sizes, directions
-    #     # For TLS: need first N packets to extract tls_b_0-9, tls_dir_0-9
-    #     # If packet_sequence provided, use it; otherwise use current packet
-    #     features = extract_tls_features(packet_sequence or [packet_data])
-    #     return features
-    # elif model_name == 'dns_model':
-    #     # Extract DNS features: packet size, port, protocol
-    #     features = extract_dns_features(packet_data)
-    #     return features
+    # Parse context from model name
+    if '_' in model_name and model_name.endswith('_model'):
+        name_without_suffix = model_name[:-6]  # Remove '_model'
+        first_underscore = name_without_suffix.find('_')
+        if first_underscore > 0:
+            context = name_without_suffix[:first_underscore]
+        else:
+            context = name_without_suffix
+    else:
+        # Legacy format
+        context = model_name.replace('_model', '')
     
-    # Placeholder: return empty array
-    return np.array([])
+    # TLS context: 20 features (tls_b_0-9, tls_dir_0-9)
+    if context == 'tls':
+        # Use proper TLS record extraction
+        try:
+            from src.moe.tls_record_extractor import extract_tls_features_from_packet_sequence
+            return extract_tls_features_from_packet_sequence(packet_sequence or [packet_data])
+        except ImportError:
+            logger.warning("TLS record extractor not available, using fallback")
+            return _extract_tls_features_fallback(packet_sequence or [packet_data])
+    
+    # DNS context: TODO - implement DNS feature extraction
+    elif context == 'dns':
+        logger.warning("DNS feature extraction not yet implemented")
+        return np.array([])
+    
+    # MQTT/CoAP/RTSP context: TODO - implement MQTT feature extraction
+    elif context == 'mqtt_coap_rtsp':
+        logger.warning("MQTT/CoAP/RTSP feature extraction not yet implemented")
+        return np.array([])
+    
+    # Doorbell context: TODO - implement Doorbell feature extraction
+    elif context == 'doorbell':
+        logger.warning("Doorbell feature extraction not yet implemented")
+        return np.array([])
+    
+    # GRE context: TODO - implement GRE feature extraction
+    elif context == 'gre':
+        logger.warning("GRE feature extraction not yet implemented")
+        return np.array([])
+    
+    # Unknown context
+    else:
+        logger.warning(f"Unknown context '{context}' for feature extraction")
+        return np.array([])
+
+
+def _extract_tls_features_fallback(packet_sequence: List[pd.DataFrame]) -> np.ndarray:
+    """
+    Fallback TLS feature extraction (extracts from packets, not TLS records).
+    
+    ⚠️  WARNING: This is INCORRECT but functional as a fallback.
+    
+    The correct method extracts from TLS records after TCP reassembly.
+    This fallback is used when TLS record extraction is not available.
+    
+    Features: tls_b_0-9 (packet sizes) + tls_dir_0-9 (directions)
+    Order: [tls_b_0, ..., tls_b_9, tls_dir_0, ..., tls_dir_9]
+    
+    Args:
+        packet_sequence: List of DataFrames, each representing a packet
+    
+    Returns:
+        Feature array of shape (1, 20) with dtype np.float64
+    """
+    # Initialize features with -1 (missing value - valid for TLS models)
+    tls_b = [-1.0] * 10  # Packet sizes (fallback - should be TLS record sizes)
+    tls_dir = [-1.0] * 10  # Directions (fallback - should be TLS record directions)
+    
+    # Extract from first 10 packets (fallback method)
+    n_packets = min(10, len(packet_sequence))
+    
+    for i in range(n_packets):
+        packet = packet_sequence[i]
+        
+        # Extract packet size (fallback - should be TLS record size)
+        if 'packet_size' in packet.columns:
+            tls_b[i] = float(packet['packet_size'].iloc[0])
+        elif 'frame.len' in packet.columns:
+            tls_b[i] = float(packet['frame.len'].iloc[0])
+        elif 'size' in packet.columns:
+            tls_b[i] = float(packet['size'].iloc[0])
+        else:
+            tls_b[i] = -1.0  # Missing
+        
+        # Extract direction (fallback - should be TLS record direction)
+        # 0 = client→server, 1 = server→client
+        if 'direction' in packet.columns:
+            tls_dir[i] = float(packet['direction'].iloc[0])
+        else:
+            # Try to infer from ports
+            dst_port = None
+            if 'dst_port' in packet.columns:
+                dst_port = packet['dst_port'].iloc[0]
+            elif 'tcp.dstport' in packet.columns:
+                dst_port = packet['tcp.dstport'].iloc[0]
+            
+            # If destination port is 443, it's client→server (direction 0)
+            if dst_port == 443:
+                tls_dir[i] = 0.0
+            else:
+                tls_dir[i] = -1.0  # Missing
+    
+    # Combine features in exact order: [tls_b_0...tls_b_9, tls_dir_0...tls_dir_9]
+    features = np.array(tls_b + tls_dir, dtype=np.float64).reshape(1, 20)
+    
+    logger.warning(
+        "Using fallback TLS feature extraction (packet-based). "
+        "This is INCORRECT - should extract from TLS records after TCP reassembly. "
+        "Install scapy or pyshark for proper TLS record extraction. "
+        "See docs/TLS_RECORD_EXTRACTION_REQUIREMENTS.md"
+    )
+    
+    return features
 
 
 def predict_c2(model, packet_features: np.ndarray) -> Dict[str, Any]:
     """
     Use the selected model to predict C2 traffic from packet features.
     
-    TODO: Implement prediction logic for each model type.
+    Supports various model types:
+    - scikit-learn models (RandomForest, DecisionTree, KNN, etc.)
+    - XGBoost models
+    - TensorFlow/Keras DNN models
     
     Args:
         model: Loaded model object (from load_model)
@@ -633,25 +822,115 @@ def predict_c2(model, packet_features: np.ndarray) -> Dict[str, Any]:
         {
             'is_c2': bool or array of bools,
             'probability': float or array of floats,
-            'predictions': array of predictions
+            'predictions': array of predictions (0=benign, 1=C2)
         }
     """
-    # TODO: Implement prediction logic
-    # Examples:
-    # if hasattr(model, 'predict'):
-    #     predictions = model.predict(packet_features)
-    #     probabilities = model.predict_proba(packet_features)[:, 1] if hasattr(model, 'predict_proba') else None
-    #     return {
-    #         'is_c2': predictions == 1,
-    #         'probability': probabilities,
-    #         'predictions': predictions
-    #     }
+    if packet_features is None or packet_features.size == 0:
+        logger.warning("Empty or None packet_features, returning default prediction")
+        return {
+            'is_c2': False,
+            'probability': 0.0,
+            'predictions': np.array([0])
+        }
     
-    return {
-        'is_c2': None,
-        'probability': None,
-        'predictions': None
-    }  # Placeholder
+    try:
+        # Handle scikit-learn models (RandomForest, DecisionTree, KNN, ExtraTrees, etc.)
+        if hasattr(model, 'predict') and hasattr(model, 'predict_proba'):
+            predictions = model.predict(packet_features)
+            probabilities = model.predict_proba(packet_features)
+            
+            # probabilities shape: (n_samples, n_classes)
+            # For binary classification: probabilities[:, 1] is the positive class (C2)
+            if probabilities.shape[1] >= 2:
+                c2_probabilities = probabilities[:, 1]  # Probability of C2 (class 1)
+            else:
+                # Single class or regression
+                c2_probabilities = probabilities[:, 0] if probabilities.shape[1] == 1 else predictions.astype(float)
+            
+            return {
+                'is_c2': predictions == 1,  # 1 = C2, 0 = benign
+                'probability': c2_probabilities[0] if len(c2_probabilities) == 1 else c2_probabilities,
+                'predictions': predictions
+            }
+        
+        # Handle XGBoost models
+        elif hasattr(model, 'predict') and hasattr(model, 'predict_proba'):
+            # XGBoost also has predict_proba
+            predictions = model.predict(packet_features)
+            probabilities = model.predict_proba(packet_features)
+            
+            if probabilities.shape[1] >= 2:
+                c2_probabilities = probabilities[:, 1]
+            else:
+                c2_probabilities = probabilities[:, 0] if probabilities.shape[1] == 1 else predictions.astype(float)
+            
+            return {
+                'is_c2': predictions == 1,
+                'probability': c2_probabilities[0] if len(c2_probabilities) == 1 else c2_probabilities,
+                'predictions': predictions
+            }
+        
+        # Handle TensorFlow/Keras DNN models
+        elif hasattr(model, 'predict'):
+            # Keras models return probabilities directly
+            predictions_proba = model.predict(packet_features, verbose=0)
+            
+            # For binary classification, predictions_proba is shape (n_samples, 1) or (n_samples, 2)
+            if len(predictions_proba.shape) == 1:
+                # Shape (n_samples,)
+                probabilities = predictions_proba
+                predictions = (probabilities >= 0.5).astype(int)
+            elif predictions_proba.shape[1] == 1:
+                # Shape (n_samples, 1) - single output
+                probabilities = predictions_proba[:, 0]
+                predictions = (probabilities >= 0.5).astype(int)
+            else:
+                # Shape (n_samples, 2) - binary classification
+                probabilities = predictions_proba[:, 1]  # C2 probability
+                predictions = (probabilities >= 0.5).astype(int)
+            
+            return {
+                'is_c2': predictions == 1,
+                'probability': probabilities[0] if len(probabilities) == 1 else probabilities,
+                'predictions': predictions
+            }
+        
+        # Fallback: model only has predict
+        elif hasattr(model, 'predict'):
+            predictions = model.predict(packet_features)
+            
+            # Try to get probabilities if available
+            if hasattr(model, 'predict_proba'):
+                probabilities = model.predict_proba(packet_features)
+                if probabilities.shape[1] >= 2:
+                    c2_probabilities = probabilities[:, 1]
+                else:
+                    c2_probabilities = probabilities[:, 0] if probabilities.shape[1] == 1 else predictions.astype(float)
+            else:
+                # No probability available, use predictions as probabilities
+                c2_probabilities = predictions.astype(float)
+            
+            return {
+                'is_c2': predictions == 1,
+                'probability': c2_probabilities[0] if len(c2_probabilities) == 1 else c2_probabilities,
+                'predictions': predictions
+            }
+        
+        else:
+            logger.error(f"Model does not have 'predict' method. Model type: {type(model)}")
+            return {
+                'is_c2': False,
+                'probability': 0.0,
+                'predictions': np.array([0])
+            }
+    
+    except Exception as e:
+        logger.error(f"Error during prediction: {e}", exc_info=True)
+        return {
+            'is_c2': False,
+            'probability': 0.0,
+            'predictions': np.array([0])
+        }
 
 
 def detect_c2(packet_data: pd.DataFrame,
