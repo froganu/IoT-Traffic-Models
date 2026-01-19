@@ -688,13 +688,29 @@ def extract_packet_features(packet_data: pd.DataFrame,
         Feature array ready for model prediction
     """
     # Parse context from model name
+    # Handle contexts with underscores: mqtt_coap_rtsp, etc.
     if '_' in model_name and model_name.endswith('_model'):
         name_without_suffix = model_name[:-6]  # Remove '_model'
-        first_underscore = name_without_suffix.find('_')
-        if first_underscore > 0:
-            context = name_without_suffix[:first_underscore]
+        
+        # Special handling for contexts with underscores
+        # Known contexts: tls, dns, doorbell, gre, mqtt_coap_rtsp
+        if name_without_suffix.startswith('mqtt_coap_rtsp'):
+            context = 'mqtt_coap_rtsp'
+        elif name_without_suffix.startswith('tls'):
+            context = 'tls'
+        elif name_without_suffix.startswith('dns'):
+            context = 'dns'
+        elif name_without_suffix.startswith('doorbell'):
+            context = 'doorbell'
+        elif name_without_suffix.startswith('gre'):
+            context = 'gre'
         else:
-            context = name_without_suffix
+            # For other contexts, split at first underscore
+            first_underscore = name_without_suffix.find('_')
+            if first_underscore > 0:
+                context = name_without_suffix[:first_underscore]
+            else:
+                context = name_without_suffix
     else:
         # Legacy format
         context = model_name.replace('_model', '')
@@ -714,10 +730,19 @@ def extract_packet_features(packet_data: pd.DataFrame,
         logger.warning("DNS feature extraction not yet implemented")
         return np.array([])
     
-    # MQTT/CoAP/RTSP context: TODO - implement MQTT feature extraction
+    # MQTT/CoAP/RTSP context: 16 features (packet-level)
     elif context == 'mqtt_coap_rtsp':
-        logger.warning("MQTT/CoAP/RTSP feature extraction not yet implemented")
-        return np.array([])
+        try:
+            from src.moe.mqtt_coap_rtsp_feature_extractor import extract_mqtt_coap_rtsp_features
+            # Get packet_bytes if available
+            packet_bytes = _get_packet_bytes_safe(packet_data)
+            return extract_mqtt_coap_rtsp_features(packet_data, packet_bytes=packet_bytes)
+        except ImportError:
+            logger.warning("MQTT/CoAP/RTSP feature extractor not available")
+            return np.array([])
+        except Exception as e:
+            logger.error(f"Error extracting MQTT/CoAP/RTSP features: {e}", exc_info=True)
+            return np.array([])
     
     # Doorbell context: TODO - implement Doorbell feature extraction
     elif context == 'doorbell':
@@ -988,6 +1013,7 @@ def detect_c2(packet_data: pd.DataFrame,
     
     # Combine results
     result = {
+        'context': context,  # Add context to result
         'is_encrypted': is_encrypted,
         'protocol_type': protocol_type,
         'context': context,  # Phase 2 output
