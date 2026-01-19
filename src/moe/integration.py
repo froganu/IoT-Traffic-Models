@@ -79,7 +79,9 @@ def select_ai_model(packet_data: pd.DataFrame,
     """
     Select which AI model to use based on encryption status and packet context.
     
-    TODO: Implement your model selection logic here.
+    Phase 2 (Context Selection) uses both classifiers for non-encrypted traffic:
+    1. Device Classifier: Identifies device type (Doorbell vs Other)
+    2. Protocol Classifier: Identifies protocol (DNS, MQTT, CoAP, RTSP)
     
     Args:
         packet_data: DataFrame with packet-level features (one row per packet)
@@ -88,23 +90,119 @@ def select_ai_model(packet_data: pd.DataFrame,
     
     Returns:
         Model identifier string (e.g., 'tls_model', 'dns_model', 'mqtt_model', etc.)
+    
+    Flow for non-encrypted traffic:
+    1. Try device classifier → if Doorbell: return 'doorbell_model'
+    2. Try protocol classifier → if DNS/MQTT/CoAP/RTSP: return corresponding model
+    3. Fallback to port-based heuristics
+    4. Default: 'mqtt_coap_rtsp_model'
     """
     if is_encrypted:
-        # TODO: Implement encrypted traffic model selection
-        # Examples:
-        # - If protocol_type == 'tls': return 'tls_model'
-        # - If protocol_type == 'quic': return 'quic_model'
-        # - If protocol_type == 'dtls': return 'dtls_model'
-        return 'tls_model'  # Placeholder
+        # Encrypted traffic: route to TLS expert
+        if protocol_type == 'tls':
+            return 'tls_model'
+        elif protocol_type == 'quic':
+            return 'quic_model'  # Future: QUIC expert
+        elif protocol_type == 'dtls':
+            return 'dtls_model'  # Future: DTLS expert
+        else:
+            return 'tls_model'  # Default to TLS for encrypted traffic
     else:
-        # TODO: Implement non-encrypted traffic model selection
-        # Examples:
-        # - Check port from packet header to determine: DNS, MQTT, COAP, RTSP, etc.
-        # - Check protocol field from packet
-        # - Check device type from packet metadata
-        # - Use selector model to choose expert
+        # Non-encrypted traffic: use device classifier and protocol classifier
         
-        # Example: Port-based selection (from packet header)
+        # Step 1: Try device classifier for device-based routing
+        try:
+            from src.context_selection_models import select_device_context_safe
+            device_type, confidence = select_device_context_safe(packet_data)
+            
+            if device_type is not None and confidence is not None:
+                # Device classifier succeeded
+                if device_type == 'Doorbell':
+                    return 'doorbell_model'
+                elif device_type == 'Other':
+                    # For 'Other', fall back to protocol-based selection
+                    pass  # Continue to protocol classifier below
+                # If confidence is too low, fall back to protocol classifier
+                if confidence < 0.7:
+                    pass  # Continue to protocol classifier below
+        except ImportError:
+            # Device classifier not available, use protocol classifier
+            pass
+        except Exception:
+            # Device classifier failed, use protocol classifier
+            pass
+        
+        # Step 2: Use protocol classifier for protocol-based routing
+        try:
+            from src.context_selection_models import classify_packet, PacketMetadata, ProtocolLabel
+            
+            # Extract metadata for protocol classification
+            # Get port and protocol from packet_data or function parameters
+            dst_port = None
+            src_port = None
+            l4_proto = None
+            
+            if 'dst_port' in packet_data.columns:
+                dst_port = packet_data['dst_port'].iloc[0] if len(packet_data) > 0 else None
+            elif 'port' in packet_data.columns:
+                dst_port = packet_data['port'].iloc[0] if len(packet_data) > 0 else None
+            
+            if 'src_port' in packet_data.columns:
+                src_port = packet_data['src_port'].iloc[0] if len(packet_data) > 0 else None
+            
+            # Infer L4 protocol from port or protocol column
+            if 'protocol' in packet_data.columns:
+                proto_str = packet_data['protocol'].iloc[0] if len(packet_data) > 0 else None
+                if proto_str and isinstance(proto_str, str):
+                    l4_proto = proto_str.lower()
+            elif dst_port:
+                # Heuristic: common UDP ports
+                if dst_port in [53, 5683, 5684]:  # DNS, CoAP
+                    l4_proto = 'udp'
+                elif dst_port in [1883, 8883, 554]:  # MQTT, RTSP
+                    l4_proto = 'tcp'
+            
+            # Default to TCP if unknown
+            if l4_proto not in ['tcp', 'udp']:
+                l4_proto = 'tcp'
+            
+            # Create metadata for protocol classifier
+            meta = PacketMetadata(
+                l4_proto=l4_proto,
+                src_port=src_port,
+                dst_port=dst_port,
+                captured_payload_offset=0
+            )
+            
+            # Get packet bytes if available (for better classification)
+            packet_bytes = None
+            if 'packet_bytes' in packet_data.columns:
+                packet_bytes = packet_data['packet_bytes'].iloc[0] if len(packet_data) > 0 else None
+            
+            # Classify protocol
+            protocol_result = classify_packet(packet_bytes or b'', meta)
+            
+            if protocol_result.label != ProtocolLabel.UNKNOWN and protocol_result.confidence >= 0.7:
+                # Protocol classifier succeeded with high confidence
+                if protocol_result.label == ProtocolLabel.DNS:
+                    return 'dns_model'
+                elif protocol_result.label == ProtocolLabel.MQTT:
+                    return 'mqtt_model'
+                elif protocol_result.label == ProtocolLabel.COAP:
+                    return 'mqtt_coap_rtsp_model'  # CoAP
+                elif protocol_result.label == ProtocolLabel.RTSP:
+                    return 'mqtt_coap_rtsp_model'  # RTSP
+                elif protocol_result.label == ProtocolLabel.OTHER:
+                    # Cleartext but unknown protocol
+                    pass  # Continue to port-based fallback
+        except ImportError:
+            # Protocol classifier not available, use port-based fallback
+            pass
+        except Exception:
+            # Protocol classifier failed, use port-based fallback
+            pass
+        
+        # Step 3: Fallback to port-based selection (from packet header)
         if 'dst_port' in packet_data.columns or 'port' in packet_data.columns:
             port_col = 'dst_port' if 'dst_port' in packet_data.columns else 'port'
             ports = packet_data[port_col].unique()
@@ -112,9 +210,13 @@ def select_ai_model(packet_data: pd.DataFrame,
                 return 'dns_model'
             elif 1883 in ports or 8883 in ports:
                 return 'mqtt_model'
-            # Add more port-based logic...
+            elif 5683 in ports or 5684 in ports:
+                return 'mqtt_coap_rtsp_model'  # CoAP
+            elif 554 in ports:
+                return 'mqtt_coap_rtsp_model'  # RTSP
         
-        return 'default_model'  # Placeholder
+        # Default: use multi-device model for unknown non-encrypted traffic
+        return 'mqtt_coap_rtsp_model'  # Default for non-encrypted
 
 
 def load_model(model_name: str):
