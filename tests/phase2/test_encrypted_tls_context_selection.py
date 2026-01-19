@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pandas as pd
-from src.moe import check_encryption, select_ai_model
+from src.moe import check_encryption, select_context
 
 
 def create_packet_dataframe(port=443, protocol='tcp'):
@@ -82,9 +82,9 @@ def main():
     
     # Phase 2: Context selection
     print("Phase 2: Running context selection...")
-    model_name = select_ai_model(packet_data, is_encrypted, protocol_type)
+    context = select_context(packet_data, is_encrypted, protocol_type)
     
-    print(f"  Selected Model: {model_name}")
+    print(f"  Selected Context: {context}")
     print()
     
     # Assertions
@@ -92,10 +92,10 @@ def main():
     try:
         assert is_encrypted == True, f"Expected encrypted=True, got {is_encrypted}"
         assert protocol_type == 'tls', f"Expected protocol_type='tls', got {protocol_type}"
-        assert model_name == 'tls_model', f"Expected model='tls_model', got {model_name}"
+        assert context == 'tls', f"Expected context='tls', got {context}"
         print("  ✓ Encryption correctly detected")
         print("  ✓ TLS protocol correctly identified")
-        print("  ✓ TLS model correctly selected")
+        print(f"  ✓ TLS context correctly selected: {context}")
         print()
         print("=" * 80)
         print("TEST PASSED ✓")

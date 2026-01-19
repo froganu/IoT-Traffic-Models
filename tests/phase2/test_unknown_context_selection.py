@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pandas as pd
-from src.moe import check_encryption, select_ai_model
+from src.moe import check_encryption, select_context
 from src.context_selection_models import select_device_context_safe, classify_packet, PacketMetadata, ProtocolLabel
 
 
@@ -99,15 +99,16 @@ def main():
     print("  Step 2.3: Full Context Selection (Device + Protocol Classifiers + Fallback)")
     packet_data_with_bytes = packet_data.copy()
     packet_data_with_bytes['packet_bytes'] = [unknown_packet_bytes] * len(packet_data)
-    model_name = select_ai_model(packet_data_with_bytes, is_encrypted, protocol_type)
-    print(f"    Selected Model: {model_name}")
+    context = select_context(packet_data_with_bytes, is_encrypted, protocol_type)
+    print(f"    Selected Context: {context}")
     print()
     
     # Assertions
     print("Assertions:")
     try:
         assert is_encrypted == False, f"Expected encrypted=False (default), got {is_encrypted}"
-        assert model_name is not None, f"Expected some model to be selected, got {model_name}"
+        assert context is not None, f"Expected some context to be selected, got {context}"
+        assert context in ['mqtt_coap_rtsp', 'gre'], f"Expected default context, got {context}"
         
         # Verify both classifiers were attempted
         if protocol_result:
@@ -117,7 +118,7 @@ def main():
         print("  ✓ Unknown traffic correctly defaulted to not encrypted")
         print("  ✓ Device classifier attempted (returned None as expected)")
         print("  ✓ Protocol classifier attempted (returned UNKNOWN/OTHER as expected)")
-        print("  ✓ Fallback routing selected a default model")
+        print(f"  ✓ Fallback routing selected default context: {context}")
         print()
         print("=" * 80)
         print("TEST PASSED ✓")

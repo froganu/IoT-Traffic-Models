@@ -5,28 +5,46 @@ Uses trained Random Forest classifier with pymfe meta-features to identify
 device type (Doorbell vs Other) from network traffic patterns.
 """
 
+import logging
 from typing import Optional, Tuple, Dict, Any
 import pandas as pd
 import numpy as np
 from pathlib import Path
 import warnings
 
+# Set up logger
+logger = logging.getLogger(__name__)
+
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
 
+# Model caching (singleton pattern)
+_DEVICE_SELECTOR_CACHE: Optional[Tuple[Any, Any]] = None
 
-def load_device_selector() -> Tuple[Any, Any]:
+
+def load_device_selector(use_cache: bool = True) -> Tuple[Any, Any]:
     """
     Load the trained device selector models.
     
+    Uses caching to avoid reloading models on every call (performance optimization).
+    
+    Args:
+        use_cache: If True, use cached models if available
+    
     Returns:
         Tuple of (scaler, classifier) objects
-        Returns (None, None) if models cannot be loaded
     
     Raises:
         FileNotFoundError: If model files don't exist
         ImportError: If required libraries (sklearn, pymfe) not available
     """
+    global _DEVICE_SELECTOR_CACHE
+    
+    # Return cached models if available
+    if use_cache and _DEVICE_SELECTOR_CACHE is not None:
+        logger.debug("Using cached device selector models")
+        return _DEVICE_SELECTOR_CACHE
+    
     try:
         import joblib
     except ImportError:
@@ -42,8 +60,14 @@ def load_device_selector() -> Tuple[Any, Any]:
     if not classifier_path.exists():
         raise FileNotFoundError(f"Classifier model not found: {classifier_path}")
     
+    logger.info(f"Loading device selector models from {model_dir}")
     scaler = joblib.load(scaler_path)
     classifier = joblib.load(classifier_path)
+    
+    # Cache models for future use
+    if use_cache:
+        _DEVICE_SELECTOR_CACHE = (scaler, classifier)
+        logger.debug("Device selector models cached")
     
     return scaler, classifier
 
@@ -66,12 +90,25 @@ def extract_metafeatures(df: pd.DataFrame) -> Dict[str, float]:
     except ImportError:
         raise ImportError("pymfe is required for meta-feature extraction. Install with: pip install pymfe")
     
-    if df.empty or df.shape[0] < 10:
-        # Return minimal features for very small datasets
+    # Validate input
+    if df.empty:
+        logger.warning("Empty DataFrame provided to extract_metafeatures")
         return {
-            'nr_attr': df.shape[1] if not df.empty else 0,
+            'nr_attr': 0,
+            'nr_inst': 0,
+            'mean': 0.0
+        }
+    
+    if df.shape[0] < 10:
+        logger.debug(f"Small dataset ({df.shape[0]} rows), using minimal features")
+        # Return minimal features for very small datasets
+        # Only compute mean on numeric columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        mean_val = df[numeric_cols].mean().mean() if len(numeric_cols) > 0 else 0.0
+        return {
+            'nr_attr': df.shape[1],
             'nr_inst': len(df),
-            'mean': df.mean().mean() if not df.empty and df.shape[1] > 0 else 0.0
+            'mean': mean_val
         }
     
     try:
@@ -99,11 +136,15 @@ def extract_metafeatures(df: pd.DataFrame) -> Dict[str, float]:
         return meta
     
     except Exception as e:
+        logger.warning(f"Meta-feature extraction failed: {e}. Using minimal features.", exc_info=True)
         # Fallback to minimal features on error
+        # Only compute mean on numeric columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns if not df.empty else []
+        mean_val = df[numeric_cols].mean().mean() if len(numeric_cols) > 0 else 0.0
         return {
             'nr_attr': df.shape[1] if not df.empty else 0,
             'nr_inst': len(df),
-            'mean': df.mean().mean() if not df.empty and df.shape[1] > 0 else 0.0
+            'mean': mean_val
         }
 
 
@@ -141,7 +182,17 @@ def select_device_context(packet_data: pd.DataFrame,
     # Convert to array (ensure same order as training)
     # Get feature names from scaler if available, otherwise use dict keys
     if hasattr(scaler, 'feature_names_in_') and scaler.feature_names_in_ is not None:
-        feature_names = scaler.feature_names_in_
+        feature_names = list(scaler.feature_names_in_)
+    elif hasattr(scaler, 'n_features_in_') and scaler.n_features_in_ is not None:
+        # If we know the expected number of features but not the names
+        # This shouldn't happen, but handle it gracefully
+        logger.warning("Scaler has n_features_in_ but not feature_names_in_. Using meta_features keys.")
+        feature_names = list(meta_features.keys())
+        # Pad to expected size if needed
+        expected_size = scaler.n_features_in_
+        if len(feature_names) < expected_size:
+            # Add placeholder names for missing features
+            feature_names.extend([f'unknown_feature_{i}' for i in range(len(feature_names), expected_size)])
     else:
         # Fallback: use keys from meta_features
         feature_names = list(meta_features.keys())
@@ -151,12 +202,18 @@ def select_device_context(packet_data: pd.DataFrame,
     
     # Handle case where we have fewer features than expected
     # (e.g., if pymfe extraction failed and returned minimal features)
-    if len(feature_values) != len(feature_names):
-        # Pad with zeros or truncate
-        if len(feature_values) < len(feature_names):
-            feature_values.extend([0.0] * (len(feature_names) - len(feature_values)))
-        else:
-            feature_values = feature_values[:len(feature_names)]
+    expected_size = len(feature_names)
+    if hasattr(scaler, 'n_features_in_') and scaler.n_features_in_ is not None:
+        expected_size = scaler.n_features_in_
+    
+    if len(feature_values) < expected_size:
+        # Pad with zeros
+        feature_values.extend([0.0] * (expected_size - len(feature_values)))
+        logger.debug(f"Padded feature vector from {len(feature_values) - (expected_size - len(feature_values))} to {expected_size} features")
+    elif len(feature_values) > expected_size:
+        # Truncate (shouldn't happen, but be safe)
+        feature_values = feature_values[:expected_size]
+        logger.warning(f"Truncated feature vector from {len(feature_values)} to {expected_size} features")
     
     # Normalize features
     X_scaled = scaler.transform([feature_values])
@@ -179,12 +236,30 @@ def select_device_context_safe(packet_data: pd.DataFrame) -> Tuple[Optional[str]
     Returns:
         Tuple of (device_type: Optional[str], confidence: Optional[float])
         Returns (None, None) on error
+    
+    This function never raises exceptions, making it safe for use in production
+    pipelines where classifier failures should not break the system.
     """
+    # Input validation
+    if not isinstance(packet_data, pd.DataFrame):
+        logger.warning(f"Invalid input type: {type(packet_data)}, expected DataFrame")
+        return None, None
+    
+    if packet_data.empty:
+        logger.debug("Empty DataFrame provided to device selector")
+        return None, None
+    
     try:
-        return select_device_context(packet_data)
+        device_type, confidence = select_device_context(packet_data)
+        logger.debug(f"Device selector result: {device_type} (confidence: {confidence:.2f})")
+        return device_type, confidence
+    except ImportError as e:
+        logger.debug(f"Device selector dependencies not available: {e}")
+        return None, None
+    except FileNotFoundError as e:
+        logger.warning(f"Device selector model files not found: {e}")
+        return None, None
     except Exception as e:
-        # Log error but don't raise
-        import warnings
-        warnings.warn(f"Device selector failed: {e}. Returning None.", RuntimeWarning)
+        logger.warning(f"Device selector failed: {e}. Returning None.", exc_info=True)
         return None, None
 

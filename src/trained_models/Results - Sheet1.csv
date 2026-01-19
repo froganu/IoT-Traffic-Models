@@ -1,0 +1,18 @@
+Model/Context,TLS 1.2 to TLS 1.3-enabled Malware,"MQTT, COAP:v1, RTSP",Different mirai attacks on Danmini Doorbell Device,Mirai attacks to IoT devices in CICIOT lab (GRE),DNS-Based Command & Control
+Random Forest,"93.87% - MS TLS 1.3 Short TPR
+93.21% - MS TLS 1.3 Long TPR
+99.78% - Tranco TLS 1.3 TNR",100 %,0.97% accuracy,96.69,0.999208 accuracy
+Deep Neural Network,"90.08% - MS TLS 1.3 Short TPR
+89.87% - MS TLS 1.3 Long TPR
+99.87% - Tranco TLS 1.3 TNR","Centralized 99.9581%, Federated: 99.9518% ",0.71% accuracy,96.2,0.980116 accuracy
+KNN,"96.07% - MS TLS 1.3 Short TPR
+95.82% - MS TLS 1.3 Long TPR
+98.20% - Tranco TLS 1.3 TNR",99.9596 % ,Without balancing & Without scaling: 99.89% Without balancing & With scaling: 99.99%  With balancing & With scaling: 100% With balancing & Without scaling: 100%,96.26,0.9997628979 accuracy
+XGBoost,"97.41% - MS TLS 1.3 Short TPR
+97.25% - MS TLS 1.3 Long TPR
+99.80% - Tranco TLS 1.3 TNR",100 %,0.98% accuracy,96.41,0.999879 accuracy
+Extra Trees,"93.64% - MS TLS 1.3 Short TPR
+93.15% - MS TLS 1.3 Long TPR
+99.78% - Tranco TLS 1.3 TNR",99.9992 %,100% accuracy,96.71%,0.9503894100 accuracy
+Decision Tree,,100 %,0.87% accuracy,96.13,0.999490 accuracy
+Logistic Regression Model,,99.5340 %,0.71% accuracy,93.6,0.949594 accuracy

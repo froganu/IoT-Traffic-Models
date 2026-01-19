@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pandas as pd
-from src.moe import check_encryption, select_ai_model
+from src.moe import check_encryption, select_context
 from src.context_selection_models import select_device_context_safe, classify_packet, PacketMetadata, ProtocolLabel
 
 
@@ -120,15 +120,15 @@ def main():
     # Add packet_bytes to DataFrame for protocol classifier
     packet_data_with_bytes = packet_data.copy()
     packet_data_with_bytes['packet_bytes'] = [packet_bytes] * len(packet_data)
-    model_name = select_ai_model(packet_data_with_bytes, is_encrypted, protocol_type)
-    print(f"    Selected Model: {model_name}")
+    context = select_context(packet_data_with_bytes, is_encrypted, protocol_type)
+    print(f"    Selected Context: {context}")
     print()
     
     # Assertions
     print("Assertions:")
     try:
         assert is_encrypted == False, f"Expected encrypted=False, got {is_encrypted}"
-        assert model_name == 'mqtt_model', f"Expected model='mqtt_model', got {model_name}"
+        assert context == 'mqtt_coap_rtsp', f"Expected context='mqtt_coap_rtsp', got {context}"
         
         # Verify protocol classifier was used (may be UNKNOWN if needs reassembly, but port fallback should work)
         if protocol_result:
@@ -139,7 +139,7 @@ def main():
         print("  ✓ Encryption correctly detected as not encrypted")
         print("  ✓ Device classifier attempted (may return None for MQTT traffic)")
         print("  ✓ Protocol classifier attempted (may need TCP reassembly for MQTT)")
-        print("  ✓ MQTT model correctly selected (via protocol classifier or port fallback)")
+        print(f"  ✓ MQTT/CoAP/RTSP context correctly selected: {context}")
         print()
         print("=" * 80)
         print("TEST PASSED ✓")
